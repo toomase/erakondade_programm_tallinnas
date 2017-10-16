@@ -16,7 +16,6 @@ library(scales)
 library(drlib)
 library(hrbrthemes)
 
-
 # positiivsed ja negatiivsed sõnad eesti keeles
 load("data/sonade_emotsioon_est.RData")
 ```
@@ -79,6 +78,27 @@ ekre_programm <- read_html(ekre_url) %>%
   html_text()
 ```
 
+Erakondade programmid ühte tabelisse kokku
+```{r}
+erakondade_programmid <- data_frame(programm = keskerakond_programm, erakond = "Keskerakond") %>% 
+  bind_rows(data_frame(programm = reform_programm, erakond = "Reformierakond")) %>% 
+  bind_rows(data_frame(programm = irl_programm, erakond = "IRL")) %>% 
+  bind_rows(data_frame(programm = ekre_programm, erakond = "EKRE")) %>% 
+  bind_rows(data_frame(programm = sotsid_programm, erakond = "Sotsiaaldemokraadid")) %>% 
+  bind_rows(data_frame(programm = rohelised_programm, erakond = "Rohelised"))
+```
+
+salvesta andmed edasiseks kasutamiseks
+```{r}
+save(keskerakond_programm,
+     reform_programm,
+     irl_programm,
+     ekre_programm,
+     sotsid_programm,
+     rohelised_programm,
+     erakondade_programmid, file = "data/programmid.RData")
+```
+
 
 Fuktsioon, mis koostab programmi tekstist grrafilise ülevaate
 ```{r}
@@ -112,16 +132,6 @@ tootle_programme(sotsid_programm, "Sotsiaaldemokraatide programm")
 tootle_programme(ekre_programm, "EKRE programm")
 tootle_programme(irl_programm, "IRL programm")
 tootle_programme(rohelised_programm, "Roheliste programm")
-```
-
-Erakondade programmid ühte tabelisse kokku
-```{r}
-erakondade_programmid <- data_frame(programm = keskerakond_programm, erakond = "Keskerakond") %>% 
-  bind_rows(data_frame(programm = reform_programm, erakond = "Reformierakond")) %>% 
-  bind_rows(data_frame(programm = irl_programm, erakond = "IRL")) %>% 
-  bind_rows(data_frame(programm = ekre_programm, erakond = "EKRE")) %>% 
-  bind_rows(data_frame(programm = sotsid_programm, erakond = "Sotsiaaldemokraadid")) %>% 
-  bind_rows(data_frame(programm = rohelised_programm, erakond = "Rohelised"))
 ```
 
 Igale erakonna programmile kõige iseloomulikumad sõnad
