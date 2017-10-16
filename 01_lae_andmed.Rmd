@@ -1,0 +1,173 @@
+---
+title: "Erakondade 2017 kohalike valimiste programmid Tallinnas"
+output: html_notebook
+---
+
+2017. aasta kohalikel valimistel osalenud erakondade programmide võrdlus Tallinnas. 
+ 
+```{r}
+library(rvest)
+library(tidyverse)
+library(ggpage)
+library(tidytext)
+library(pdftools)
+library(forcats)
+library(scales)
+library(drlib)
+library(hrbrthemes)
+
+
+# positiivsed ja negatiivsed sõnad eesti keeles
+load("data/sonade_emotsioon_est.RData")
+```
+
+Programmide url-d
+```{r}
+reform_url <- "https://www.reform.ee/kov-valimised-2017/piirkond/tallinn/tulevikutallinn"
+
+sotsid_url <- "http://www.sotsid.ee/oige-poore-tallinnas/"
+
+irl_url <- "http://irl.ee/irli-programm-tallinnas/"
+
+keskerakond_pdf <- "http://www.keskerakond.ee/files/Lubadused_est_Tallinn.pdf"
+
+rohelised_url <- "http://erakond.ee/kov-2017-programm/"
+
+ekre_url <- "https://www.ekre.ee/kov-tallinn/"
+```
+
+Keskerakonna programm
+```{r}
+keskerakond_programm <- pdf_text(keskerakond_pdf) %>% 
+  str_replace_all(., "\\n|•\t|\t", " ") %>% 
+  str_replace_all(., "\\s+", " ") %>% 
+  str_trim(.)
+```
+
+Reformierakonna programm
+```{r}
+reform_programm <- read_html(reform_url) %>% 
+  html_nodes("p") %>% 
+  html_text()
+```
+
+Sotsiaaldemokraatide programm
+```{r}
+sotsid_programm <- read_html(sotsid_url) %>% 
+  html_nodes(".content li , .content p") %>% 
+  html_text()
+```
+
+IRL programm
+```{r}
+irl_programm <- read_html(irl_url) %>% 
+  html_nodes(".wpb_content_element .wpb_wrapper li , p") %>% 
+  html_text()
+```
+
+Rohelised programm
+```{r}
+rohelised_programm <- read_html(rohelised_url) %>% 
+  html_nodes("#content li , #content p") %>% 
+  html_text()
+```
+
+EKRE programm
+```{r}
+ekre_programm <- read_html(ekre_url) %>% 
+  html_nodes(".col-md-12") %>% 
+  html_text()
+```
+
+
+Fuktsioon, mis koostab programmi tekstist grrafilise ülevaate
+```{r}
+tootle_programme <- function(x, nm){
+  nm_name <- quo_name(nm)  # erakonna nimi, joonise pealkirjaks
+  
+  data_frame(programm = x) %>% 
+    # jaga kogu tekst 8-st sõnast koosnevateks ridadeks
+    unnest_tokens(rida, programm, token = "ngrams", n = 8, to_lower = FALSE) %>% 
+    mutate(rea_nr = row_number()) %>% 
+    filter(rea_nr %in% seq(1, 50000, 8)) %>% 
+    select(-rea_nr) %>% 
+    rename(text = rida) %>% 
+    ggpage_build() %>% 
+    # lisa sõna emotsiooni tunnus
+    left_join(sonade_emotsioon_est, by = c("word" = "sona")) %>% 
+    # kui emotsiooni pole, siis muu
+    mutate(emotsioon_sona = ifelse(is.na(emotsioon_sona), "muu", emotsioon_sona)) %>% 
+    ggpage_plot(aes(fill = emotsioon_sona)) +
+    labs(title = nm_name) +
+    scale_fill_manual(values = c("grey70", "red", "blue")) +
+    guides(fill = FALSE)
+}
+```
+
+Joonista graafikud kõigi erakondade programmiga
+```{r}
+tootle_programme(keskerakond_programm, "Keskerakonna programm")
+tootle_programme(reform_programm, "Reformierakonna programm")
+tootle_programme(sotsid_programm, "Sotsiaaldemokraatide programm")
+tootle_programme(ekre_programm, "EKRE programm")
+tootle_programme(irl_programm, "IRL programm")
+tootle_programme(rohelised_programm, "Roheliste programm")
+```
+
+Erakondade programmid ühte tabelisse kokku
+```{r}
+erakondade_programmid <- data_frame(programm = keskerakond_programm, erakond = "Keskerakond") %>% 
+  bind_rows(data_frame(programm = reform_programm, erakond = "Reformierakond")) %>% 
+  bind_rows(data_frame(programm = irl_programm, erakond = "IRL")) %>% 
+  bind_rows(data_frame(programm = ekre_programm, erakond = "EKRE")) %>% 
+  bind_rows(data_frame(programm = sotsid_programm, erakond = "Sotsiaaldemokraadid")) %>% 
+  bind_rows(data_frame(programm = rohelised_programm, erakond = "Rohelised"))
+```
+
+Igale erakonna programmile kõige iseloomulikumad sõnad
+```{r}
+valistamised <- c("window", "to", "share", "opens", "new", "in", "click",
+                  "res", "publica", "isamaa", "as", "liidu", "rahvaerakond",
+                  "konservatiivne", "aeg")
+
+erakonnale_iseloomulik <- erakondade_programmid %>% 
+  unnest_tokens(word, programm) %>% 
+  count(erakond, word, sort = TRUE) %>% 
+  ungroup() %>% 
+  arrange(erakond) %>%
+  filter(!word %in% valistamised)%>% 
+  bind_tf_idf(word, erakond, n) %>%
+  arrange(erakond, desc(tf_idf)) %>%
+  group_by(erakond) %>% 
+  top_n(7) %>% 
+  group_by(erakond) %>% 
+  mutate(word = factor(word, levels = (unique(word))),
+         word = fct_reorder(word, tf_idf)) %>%
+  ungroup() %>% 
+  mutate(erakond = factor(erakond, levels = c("Keskerakond", "Reformierakond",
+                                              "Sotsiaaldemokraadid",
+                                              "IRL", "EKRE", "Rohelised")))
+
+```
+
+Programmile iseloomulikud sõnad graafikul
+```{r, fig.height=8, fig.width=10}
+erakonnale_iseloomulik %>%
+  filter(!word %in% valistamised) %>% 
+  ggplot(aes(reorder_within(word, tf_idf, erakond), tf_idf)) +
+  geom_bar(alpha = 0.8, stat = "identity", show.legend = FALSE, fill = "#feb24c") +
+  labs(title = "Erakondade Tallinna programmidele top 7 iseloomulikku sõna",
+         subtitle = "-Sõnade tähtsuse hindamise mõõtühikuks on term frequency–inverse document frequency",
+         x = NULL, y = NULL) +
+  scale_y_continuous(labels = comma) +
+  scale_x_discrete(labels = function(x) gsub("__.+$", "", x)) +
+  facet_wrap(~erakond, ncol = 2, scales = "free") +
+  coord_flip() +
+  theme_ipsum_rc() +
+  theme(panel.grid = element_blank(),
+          axis.text = element_text(size = 9),
+          text = element_text(family = "Chivo"),
+          plot.title = element_text(size = 14, face = "bold"),
+          strip.text = element_text(size = 11))
+```
+
